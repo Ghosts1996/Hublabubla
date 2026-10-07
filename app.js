@@ -1,27 +1,190 @@
-const tracks=[
- {id:1,title:'Midnight City',artist:'M83',album:'Hurry Up, We’re Dreaming',time:'4:03',cover:'gradient-1',src:'https://cdn.pixabay.com/audio/2022/10/25/audio_9468e2c2a6.mp3'},
- {id:2,title:'A Moment Apart',artist:'ODESZA',album:'A Moment Apart',time:'3:54',cover:'gradient-2',src:'https://cdn.pixabay.com/audio/2023/04/24/audio_35b8cd5e9d.mp3'},
- {id:3,title:'Sunset Lover',artist:'Petit Biscuit',album:'Presence',time:'3:58',cover:'gradient-3',src:'https://cdn.pixabay.com/audio/2022/05/27/audio_1808fbf07a.mp3'},
- {id:4,title:'Innerbloom',artist:'RÜFÜS DU SOL',album:'Bloom',time:'9:35',cover:'gradient-4',src:'https://cdn.pixabay.com/audio/2022/03/15/audio_2c8b2c3a62.mp3'},
- {id:5,title:'The Less I Know The Better',artist:'Tame Impala',album:'Currents',time:'3:36',cover:'gradient-5',src:'https://cdn.pixabay.com/audio/2022/02/23/audio_8b5f4f2c64.mp3'},
- {id:6,title:'Nightcall',artist:'Kavinsky',album:'OutRun',time:'4:18',cover:'gradient-6',src:'https://cdn.pixabay.com/audio/2022/08/23/audio_1b7b9c7e2b.mp3'},
- {id:7,title:'Electric Feel',artist:'MGMT',album:'Oracular Spectacular',time:'3:49',cover:'gradient-7',src:'https://cdn.pixabay.com/audio/2022/10/30/audio_5c8e1a0bb5.mp3'}
+'use strict';
+const $ = s => document.querySelector(s);
+const audio = $('#audio');
+const view = $('#view');
+const input = $('#searchInput');
+const escapeHTML = value => String(value ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+function load(key, fallback) {
+  try { const value = JSON.parse(localStorage.getItem(key)); return Array.isArray(value) ? value : fallback; }
+  catch { return fallback; }
+}
+function save(key, value) {
+  try { localStorage.setItem(key, JSON.stringify(value)); }
+  catch { toast('Браузер не разрешает сохранение. Коллекция доступна в текущем сеансе.'); }
+}
+const tracks = [
+  {id:'demo-1', title:'Neon Drift', artist:'Vibe Synth', album:'Встроенное демо · 24 сек', cover:'gradient-1', time:'0:24', demo:0},
+  {id:'demo-2', title:'Ocean Pulse', artist:'Vibe Synth', album:'Встроенное демо · 24 сек', cover:'gradient-4', time:'0:24', demo:1},
+  {id:'demo-3', title:'Golden Hour', artist:'Vibe Synth', album:'Встроенное демо · 24 сек', cover:'gradient-3', time:'0:24', demo:2}
 ];
-const audio=document.querySelector('#audio'), view=document.querySelector('#view'), input=document.querySelector('#searchInput');
-let imported=JSON.parse(localStorage.getItem('vibe-imported')||'[]'), liked=JSON.parse(localStorage.getItem('vibe-liked')||'[]'), queue=[...tracks,...imported], current=null, isShuffle=false, isRepeat=false;
-const allTracks=()=>[...tracks,...imported];
-const $=s=>document.querySelector(s); const fmt=s=>{if(!s||Number.isNaN(s))return'0:00';return `${Math.floor(s/60)}:${String(Math.floor(s%60)).padStart(2,'0')}`};
-function toast(msg){const el=$('#toast');el.textContent=msg;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),2400)}
-function cover(t,small=false){return `<div class="${small?'track-cover':'cover'} ${t.cover}">✦${small?'':''}${!small?`<button class="play-float" data-play="${t.id}" aria-label="Воспроизвести">▶</button>`:''}</div>`}
-function trackRow(t,i){return `<div class="track"><span class="track-num">${String(i+1).padStart(2,'0')}</span>${cover(t,true)}<button class="track-info" data-play="${t.id}" style="text-align:left"><div class="track-name">${t.title}</div><div class="track-author">${t.artist} · ${t.album}</div></button><span class="track-time">${t.time}</span><button class="track-like ${liked.includes(t.id)?'liked':''}" data-like="${t.id}" aria-label="Любимое">${liked.includes(t.id)?'♥':'♡'}</button></div>`}
-function cards(list){return `<div class="cards">${list.map(t=>`<article class="card">${cover(t)}<div class="card-title">${t.title}</div><div class="card-subtitle">${t.artist}</div></article>`).join('')}</div>`}
-function renderDiscover(){view.innerHTML=`<section class="hero"><div><div class="eyebrow">Среда, 7 октября</div><h1>Музыка для<br><span style="color:var(--accent)">твоего момента.</span></h1><p>Твой звук. Твои правила. Твой вайб.</p></div></section><section class="section"><div class="section-head"><h2>Слушай прямо сейчас</h2><button class="see-all">Обновить подборку ↗</button></div>${cards(tracks.slice(0,5))}</section><section class="section"><div class="section-head"><h2>Персональные миксы</h2><button class="see-all">Смотреть все →</button></div><div class="cards">${[['Вечерний вайб','Для спокойного вечера','mix-1'],['Фокус и поток','Музыка для концентрации','mix-2'],['На полной громкости','Твой заряд на сегодня','mix-3']].map(x=>`<div class="mix-card ${x[2]}"><strong>${x[0]}</strong><small>${x[1]}</small></div>`).join('')}</div></section><section class="section"><div class="section-head"><h2>Популярное сегодня</h2><button class="see-all">Весь чарт →</button></div><div class="track-list">${tracks.slice(0,5).map(trackRow).join('')}</div></section>`;bind();}
-function renderSearch(q=''){const found=allTracks().filter(t=>(t.title+' '+t.artist+' '+t.album).toLowerCase().includes(q.toLowerCase()));view.innerHTML=`<section class="hero"><div><div class="eyebrow">Поиск</div><h1>${q?`Результаты для<br><span style="color:var(--accent)">«${q}»</span>`:'Найди свой следующий трек.'}</h1></div></section><section class="section">${found.length?`<div class="track-list">${found.map(trackRow).join('')}</div>`:'<div class="empty"><strong>Ничего не нашли</strong>Попробуй другое название, исполнителя или альбом.</div>'}</section>`;bind()}
-function renderLibrary(mode='library'){let list=mode==='liked'?allTracks().filter(t=>liked.includes(t.id)):queue;view.innerHTML=`<section class="hero"><div><div class="eyebrow">Твоя коллекция</div><h1>${mode==='liked'?'Любимые треки':'Моя музыка'}</h1><p>${list.length} ${list.length===1?'трек':'треков'} в коллекции</p></div></section><section class="section">${list.length?`<div class="track-list">${list.map(trackRow).join('')}</div>`:`<div class="empty"><strong>Здесь пока пусто</strong>Нажимай ♡ у треков, чтобы собрать свою коллекцию.</div>`}</section>`;bind()}
-function renderImports(){view.innerHTML=`<section class="hero"><div><div class="eyebrow">Импорт коллекции</div><h1>Добавь музыку<br><span style="color:var(--accent)">массово.</span></h1><p>Вставь ссылки и метаданные — добавь подходящие треки в избранное одним действием.</p></div></section><section class="section"><div class="import-grid"><article class="import-card"><div class="import-icon">⌘</div><h3>Массовый импорт по ссылкам</h3><p>Вставь ссылки на альбомы или плейлисты VK, Яндекс Музыки, Spotify или разрешённые аудио-URL — по одной на строку.</p><textarea id="bulkLinks" rows="4" placeholder="https://open.spotify.com/album/...&#10;https://music.yandex.ru/album/...&#10;https://vk.com/music/playlist/..."></textarea><button id="bulkBtn">Добавить в избранное</button></article><article class="import-card"><div class="import-icon">✎</div><h3>Импорт метаданных CSV</h3><p>Колонки: title, artist, album, url. Треки добавятся в очередь и будут отмечены любимыми.</p><button id="csvBtn">Выбрать CSV</button><input id="csvInput" type="file" accept=".csv" hidden></article><article class="import-card"><div class="import-icon">↥</div><h3>Файлы с устройства</h3><p>MP3, WAV, FLAC и другие форматы. Файлы останутся только у тебя.</p><button id="fileBtn">Выбрать файлы</button><input id="fileInput" type="file" accept="audio/*" multiple hidden></article><article class="import-card"><div class="import-icon">◉</div><h3>Ссылка на трек</h3><p>Вставь прямую ссылку на аудиофайл — и добавь его в очередь.</p><button id="urlBtn">Добавить ссылку</button></article><article class="import-card"><div class="import-icon">♫</div><h3>Тексты и метаданные</h3><p>Открой поиск по исполнителю и названию в Genius или Musixmatch. Интеграция API подключается через backend.</p><button id="lyricsBtn">Найти текст</button></article></div></section>`;$('#fileBtn').onclick=()=>$('#fileInput').click();$('#fileInput').onchange=e=>{[...e.target.files].forEach(f=>queue.push({id:Date.now()+Math.random(),title:f.name.replace(/\.[^.]+$/,''),artist:'Локальный файл',album:'Моя музыка',time:'—',cover:'gradient-7',src:URL.createObjectURL(f)}));updateCounts();toast('Файлы добавлены в твою музыку')};$('#urlBtn').onclick=()=>{const url=prompt('Вставь прямую ссылку на аудиофайл (MP3, WAV или OGG):');if(url&&/^https?:\/\//i.test(url)){queue.push({id:Date.now(),title:'Трек по ссылке',artist:'Добавленный источник',album:'Моя музыка',time:'—',cover:'gradient-2',src:url});updateCounts();toast('Ссылка добавлена в очередь')}else if(url)toast('Нужна корректная ссылка http:// или https://')};$('#csvBtn').onclick=()=>$('#csvInput').click();$('#csvInput').onchange=e=>{const file=e.target.files[0];if(!file)return;const reader=new FileReader();reader.onload=()=>{const rows=String(reader.result).split(/\r?\n/).slice(1).map(row=>row.split(',').map(v=>v.trim())).filter(row=>row[0]);const additions=rows.map((row,i)=>({id:`csv-${Date.now()}-${i}`,title:row[0],artist:row[1]||'Неизвестный исполнитель',album:row[2]||'Импортированная коллекция',time:'—',cover:'gradient-6',src:row[3]||''}));imported=[...imported,...additions];queue.push(...additions);liked=[...new Set([...liked,...additions.map(t=>t.id)])];localStorage.setItem('vibe-imported',JSON.stringify(imported));localStorage.setItem('vibe-liked',JSON.stringify(liked));updateCounts();toast(`Импортировано в избранное: ${additions.length}`)};reader.readAsText(file)}}
-document.addEventListener('click',e=>{if(e.target.id!=='bulkBtn')return;const urls=$('#bulkLinks').value.split(/\n+/).map(v=>v.trim()).filter(Boolean);if(!urls.length){toast('Добавь хотя бы одну ссылку');return}const additions=urls.filter(url=>/^https?:\/\//i.test(url)).map((url,i)=>{const source=url.includes('spotify')?'Spotify':url.includes('yandex')?'Яндекс Музыка':url.includes('vk')?'VK Музыка':'Внешний источник';return{id:`import-${Date.now()}-${i}`,title:`Импортированный трек ${i+1}`,artist:source,album:'Импорт по ссылке',time:'—',cover:['gradient-2','gradient-4','gradient-5'][i%3],src:''}});imported=[...imported,...additions];queue.push(...additions);liked=[...new Set([...liked,...additions.map(t=>t.id)])];localStorage.setItem('vibe-imported',JSON.stringify(imported));localStorage.setItem('vibe-liked',JSON.stringify(liked));updateCounts();toast(`Добавлено в избранное: ${additions.length}`);$('#bulkLinks').value=''});\ndocument.addEventListener('click',e=>{if(e.target.id!=='lyricsBtn')return;const query=prompt('Введи исполнителя и название трека:');if(!query)return;const q=encodeURIComponent(query);window.open(`https://genius.com/search?q=${q}`,'_blank','noopener');toast('Открыт поиск текста в Genius')});
-function updateCounts(){$('#likedCount').textContent=liked.length;$('#queueCount').textContent=queue.length}
-function play(id){const t=tracks.find(x=>x.id==id)||queue.find(x=>x.id==id);if(!t)return;current=t;audio.src=t.src;audio.play().catch(()=>toast('Нажми Play ещё раз, чтобы начать воспроизведение'));$('#playerTitle').textContent=t.title;$('#playerArtist').textContent=t.artist;$('#playerCover').className=`mini-cover ${t.cover}`;$('#playerLike').classList.toggle('liked',liked.includes(t.id));$('#playerLike').textContent=liked.includes(t.id)?'♥':'♡';$('#playBtn').textContent='Ⅱ'}
-function bind(){document.querySelectorAll('[data-play]').forEach(x=>x.onclick=()=>play(x.dataset.play));document.querySelectorAll('[data-like]').forEach(x=>x.onclick=()=>{const id=allTracks().find(t=>String(t.id)===x.dataset.like)?.id||x.dataset.like;liked=liked.includes(id)?liked.filter(v=>v!==id):[...liked,id];localStorage.setItem('vibe-liked',JSON.stringify(liked));updateCounts();const hash=location.hash.slice(1);if(hash==='liked')renderLibrary('liked');else x.classList.toggle('liked');x.textContent=liked.includes(id)?'♥':'♡';$('#playerLike').classList.toggle('liked',current&&liked.includes(current.id))})}
-function route(){const h=location.hash.slice(1)||'discover';document.querySelectorAll('.nav-item').forEach(x=>x.classList.toggle('active',x.dataset.view===h));if(h==='search')renderSearch(input.value);else if(h==='liked')renderLibrary('liked');else if(h==='library'||h==='queue')renderLibrary();else if(h==='imports')renderImports();else renderDiscover()}
-input.oninput=()=>{if(location.hash!=='#search')location.hash='search';renderSearch(input.value)};window.onhashchange=route;$('#playBtn').onclick=()=>{if(!current)play(queue[0].id);else if(audio.paused){audio.play();$('#playBtn').textContent='Ⅱ'}else{audio.pause();$('#playBtn').textContent='▶'}};$('#nextBtn').onclick=()=>{const i=queue.findIndex(t=>t.id===current?.id);play(queue[(i+1)%queue.length].id)};$('#prevBtn').onclick=()=>{const i=queue.findIndex(t=>t.id===current?.id);play(queue[(i-1+queue.length)%queue.length].id)};$('#shuffleBtn').onclick=()=>{isShuffle=!isShuffle;toast(isShuffle?'Перемешивание включено':'Перемешивание выключено')};$('#repeatBtn').onclick=()=>{isRepeat=!isRepeat;audio.loop=isRepeat;toast(isRepeat?'Повтор включён':'Повтор выключен')};$('#volume').oninput=e=>audio.volume=e.target.value;audio.ontimeupdate=()=>{$('#progress').value=audio.duration?audio.currentTime/audio.duration*100:0;$('#currentTime').textContent=fmt(audio.currentTime);$('#duration').textContent=fmt(audio.duration)};$('#progress').oninput=e=>{if(audio.duration)audio.currentTime=e.target.value/100*audio.duration};audio.onended=()=>{if(!isRepeat)$('#nextBtn').click()};$('#playerLike').onclick=()=>{if(current){const el=document.querySelector(`[data-like="${current.id}"]`);el?.click();$('#playerLike').classList.toggle('liked',liked.includes(current.id))}};$('#queueBtn').onclick=()=>location.hash='queue';$('.mobile-menu').onclick=()=>$('.sidebar').classList.toggle('open');document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();input.focus()}});updateCounts();route();
+let imported = load('vibe-imported', []).filter(t => t && typeof t.id === 'string').map(t => ({...t, cover:'gradient-6', src:safeAudio(t.src)}));
+let liked = load('vibe-liked', []);
+let queue = [...tracks, ...imported];
+let current = null, shuffle = false, repeat = false, playRequest = 0;
+const allTracks = () => queue;
+function safeAudio(value) {
+  try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password ? u.href : ''; }
+  catch { return ''; }
+}
+function fmt(seconds) { return Number.isFinite(seconds) ? `${Math.floor(seconds/60)}:${String(Math.floor(seconds%60)).padStart(2,'0')}` : '0:00'; }
+let toastTimer;
+function toast(message) {
+  $('#toast').textContent = message; $('#toast').classList.add('show');
+  clearTimeout(toastTimer); toastTimer = setTimeout(() => $('#toast').classList.remove('show'), 4000);
+}
+// Original generated demo audio: no network requests or misleading artist credits.
+function demoAudio(index) {
+  const rate = 22050, length = rate * 24;
+  const buffer = new ArrayBuffer(44 + length * 2), data = new DataView(buffer);
+  const text = (offset, value) => [...value].forEach((c,i) => data.setUint8(offset+i,c.charCodeAt(0)));
+  text(0,'RIFF'); data.setUint32(4,36+length*2,true); text(8,'WAVE'); text(12,'fmt ');
+  data.setUint32(16,16,true); data.setUint16(20,1,true); data.setUint16(22,1,true);
+  data.setUint32(24,rate,true); data.setUint32(28,rate*2,true); data.setUint16(32,2,true); data.setUint16(34,16,true);
+  text(36,'data'); data.setUint32(40,length*2,true);
+  const notes = [[220,261.63,329.63,293.66],[174.61,220,261.63,196],[261.63,329.63,392,349.23]][index];
+  for (let i=0; i<length; i++) {
+    const t=i/rate, beat=t%0.5, f=notes[Math.floor(t/3)%4];
+    const pad=(Math.sin(2*Math.PI*f*t)+0.4*Math.sin(2*Math.PI*f*1.5*t))*0.13;
+    const pluck=Math.sin(2*Math.PI*f*2*t)*Math.exp(-beat*12)*0.16;
+    const kick=Math.sin(2*Math.PI*65*beat)*Math.exp(-beat*22)*0.22;
+    const fade=Math.min(1,t/0.5,(24-t)/1.5);
+    data.setInt16(44+i*2,Math.round((pad+pluck+kick)*fade*32767),true);
+  }
+  return URL.createObjectURL(new Blob([buffer],{type:'audio/wav'}));
+}
+function cover(t, small=false) {
+  return `<div class="${small?'track-cover':'cover'} ${escapeHTML(t.cover)}"><span>✦</span>${small?'':`<button class="play-float" data-play="${escapeHTML(t.id)}" aria-label="Слушать ${escapeHTML(t.title)}">▶</button>`}</div>`;
+}
+function trackRow(t,i) {
+  return `<div class="track ${current?.id===t.id?'current-track':''}"><span class="track-num">${String(i+1).padStart(2,'0')}</span>${cover(t,true)}<button class="track-info" data-play="${escapeHTML(t.id)}"><div class="track-name">${escapeHTML(t.title)}</div><div class="track-author">${escapeHTML(t.artist)} · ${escapeHTML(t.album)}</div></button><span class="track-time">${escapeHTML(t.time||'—')}</span><button class="track-like ${liked.includes(t.id)?'liked':''}" data-like="${escapeHTML(t.id)}" aria-label="Избранное" aria-pressed="${liked.includes(t.id)}">${liked.includes(t.id)?'♥':'♡'}</button></div>`;
+}
+function rows(list) { return list.length ? `<div class="track-list">${list.map(trackRow).join('')}</div>` : '<div class="empty"><strong>Здесь начинается твоя коллекция</strong>Добавь файлы в разделе «Добавить музыку».</div>'; }
+function renderDiscover() {
+  view.innerHTML = `<section class="hero"><div><div class="eyebrow">ТВОЯ ЛИЧНАЯ МУЗЫКАЛЬНАЯ ВСЕЛЕННАЯ</div><h1>Поймай<br><span>свой ритм.</span></h1><p>Без подписок. Без лишнего шума. Только ты и музыка.</p><div class="hero-actions"><button class="primary" data-play="demo-1">▶ Слушать демо</button><a class="secondary" href="#imports">↥ Добавить музыку</a></div><small class="hero-note">Три оригинальных синтезированных демо работают офлайн</small></div><div class="hero-art" aria-hidden="true"><div class="vinyl"><div class="vinyl-label">vibe<br><small>SIDE A / 33 RPM</small></div></div><div class="art-caption">YOUR SOUND. YOUR SPACE.</div></div></section><section class="section"><div class="section-head"><h2>Звук на пробу</h2><span class="section-tag">VIBE ORIGINALS</span></div><div class="cards">${tracks.map(t=>`<article class="card">${cover(t)}<div class="card-title">${escapeHTML(t.title)}</div><div class="card-subtitle">${escapeHTML(t.artist)} · офлайн-демо</div></article>`).join('')}</div></section><section class="section"><div class="section-head"><h2>Твоя коллекция</h2><a class="see-all" href="#library">Все треки →</a></div>${rows(queue.filter(t=>t.demo===undefined).slice(-5))}</section>`;
+}
+function renderSearch(query='') {
+  const found = allTracks().filter(t => `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(query.toLowerCase()));
+  view.innerHTML = `<section class="hero compact"><div><div class="eyebrow">ПОИСК В КОЛЛЕКЦИИ</div><h1>${query?escapeHTML(query):'Найди свой звук.'}</h1><p>Найдено: ${found.length}</p></div></section><section class="section">${rows(found)}</section>`;
+}
+function route() {
+  const page = location.hash.slice(1)||'discover';
+  document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===page));
+  $('.sidebar').classList.remove('open');
+  if (page==='imports') renderImports();
+  else if(page==='search') renderSearch(input.value);
+  else if(['library','queue','liked'].includes(page)) {
+    const list=page==='liked'?allTracks().filter(t=>liked.includes(t.id)):queue;
+    view.innerHTML=`<section class="hero compact"><div><div class="eyebrow">ЛИЧНОЕ ПРОСТРАНСТВО</div><h1>${{library:'Моя музыка',queue:'Очередь',liked:'Любимые треки'}[page]}</h1><p>${list.length} треков · твой звук, твои правила</p></div></section><section class="section">${rows(list)}</section>`;
+  } else renderDiscover();
+  updateCounts();
+}
+function updateCounts() {
+  $('#likedCount').textContent=allTracks().filter(t=>liked.includes(t.id)).length;
+  $('#queueCount').textContent=queue.length;
+  $('#playerLike').classList.toggle('liked',!!current && liked.includes(current.id));
+  $('#playerLike').textContent=current && liked.includes(current.id)?'♥':'♡';
+  $('#playerLike').setAttribute('aria-pressed',!!current && liked.includes(current.id));
+}
+function like(id) {
+  liked=liked.includes(id)?liked.filter(v=>v!==id):[...liked,id]; save('vibe-liked',liked); route();
+}
+async function play(id) {
+  const track=allTracks().find(t=>String(t.id)===String(id));
+  if(!track) return;
+  if(!track.src && track.demo!==undefined) track.src=demoAudio(track.demo);
+  if(!track.src) { toast('Это метаданные, не аудиофайл. Добавь локальный файл или прямую HTTPS-ссылку.'); return; }
+  const request=++playRequest;
+  current=track; audio.src=track.src;
+  $('#playerTitle').textContent=track.title; $('#playerArtist').textContent=track.artist;
+  $('#playerCover').className=`mini-cover ${track.cover}`; updateCounts();
+  try { await audio.play(); } catch { if(request===playRequest) toast('Не удалось воспроизвести. Проверь формат файла или доступность ссылки.'); }
+}
+function move(direction) {
+  const playable=queue.filter(t=>t.src || t.demo!==undefined);
+  if(!playable.length) return toast('Добавь аудиофайлы');
+  const i=playable.findIndex(t=>t.id===current?.id);
+  const others=playable.filter(t=>t.id!==current?.id);
+  const next=shuffle && others.length ? others[Math.floor(Math.random()*others.length)] : playable[(i+direction+playable.length)%playable.length];
+  play(next.id);
+}
+function add(list, favorite=false) {
+  queue.push(...list); imported.push(...list.filter(t=>!t.local));
+  if(favorite) liked=[...new Set([...liked,...list.map(t=>t.id)])];
+  save('vibe-imported',imported); save('vibe-liked',liked); updateCounts(); toast(`Добавлено: ${list.length}`);
+}
+function entry(title,artist,album,src='') { return {id:crypto.randomUUID ? crypto.randomUUID() : `track-${Date.now()}-${Math.random()}`,title,artist,album,src,cover:'gradient-6',time:'—'}; }
+// RFC-style quoted fields, commas and line breaks; no HTML interpretation.
+function parseCSV(text) {
+  const rows=[]; let row=[], field='', quoted=false;
+  text=text.replace(/^\uFEFF/,'');
+  for(let i=0;i<text.length;i++) {
+    const c=text[i];
+    if(c==='"') { if(quoted && text[i+1]==='"') {field+='"';i++;} else quoted=!quoted; }
+    else if(c===',' && !quoted) {row.push(field);field='';}
+    else if((c==='\n'||c==='\r') && !quoted) {if(c==='\r' && text[i+1]==='\n') i++;row.push(field);if(row.some(v=>v.trim()))rows.push(row);row=[];field='';}
+    else field+=c;
+  }
+  if(quoted) throw new Error('Незакрытая кавычка в CSV');
+  row.push(field);if(row.some(v=>v.trim()))rows.push(row);
+  return rows;
+}
+function renderImports() {
+  view.innerHTML=`<section class="hero compact"><div><div class="eyebrow">ТВОЯ МУЗЫКА РЯДОМ</div><h1>Наполни свой<br><span>мир звуком.</span></h1><p>Локальные файлы, прямые аудиоссылки и импорт метаданных.</p></div></section><section class="section"><div class="import-grid"><article class="import-card"><div class="import-icon">↥</div><h3>Файлы с устройства</h3><p>Выбирай сразу несколько файлов. Аудио не отправляется на сервер. После закрытия страницы файлы нужно выбрать снова. Поддержка форматов зависит от браузера.</p><button id="fileBtn">Выбрать музыку</button><input id="fileInput" type="file" accept="audio/*,.flac,.mp3,.wav,.ogg,.m4a" multiple hidden></article><article class="import-card"><div class="import-icon">↗</div><h3>Прямые аудиоссылки</h3><p>Одна HTTPS-ссылка на файл в каждой строке. Страницы Spotify/VK/Яндекс не являются аудиофайлами и здесь не воспроизводятся.</p><label for="bulkLinks">Ссылки на аудио</label><textarea id="bulkLinks" rows="4" placeholder="https://example.com/music.mp3"></textarea><button id="bulkBtn">Добавить в избранное</button></article><article class="import-card"><div class="import-icon">▤</div><h3>Импорт CSV</h3><p>Колонки title,artist,album,url. Если url пустой, импортируются только метаданные. Кавычки и запятые в названиях поддерживаются.</p><button id="csvBtn">Открыть CSV</button><input id="csvInput" type="file" accept=".csv,text/csv" hidden><button id="exportBtn">Экспорт коллекции</button></article><article class="import-card"><div class="import-icon">♫</div><h3>Тексты песен</h3><p>Поиск на сайте Genius. Для текущего трека запрос заполнится автоматически. Встроенные тексты через API требуют отдельного backend.</p><button id="lyricsBtn">Найти в Genius ↗</button></article></div></section>`;
+  $('#fileBtn').onclick=()=>$('#fileInput').click();
+  $('#fileInput').onchange=e=>add([...e.target.files].map(f=>({...entry(f.name.replace(/\.[^.]+$/,''),'Локальный файл','С устройства',URL.createObjectURL(f)),local:true,cover:'gradient-7'})));
+  $('#bulkBtn').onclick=()=>{
+    const links=$('#bulkLinks').value.split(/\r?\n/).map(v=>v.trim()).filter(Boolean);
+    const valid=links.map(safeAudio).filter(Boolean);
+    if(!valid.length) return toast('Нужны прямые HTTPS-ссылки на аудио');
+    add(valid.map(url=>entry(decodeSafe(new URL(url).pathname.split('/').pop())||'Аудио по ссылке','Внешний источник','По ссылке',url)),true);
+    $('#bulkLinks').value=''; if(valid.length<links.length) toast(`Добавлено: ${valid.length}. Некорректные ссылки пропущены.`);
+  };
+  $('#csvBtn').onclick=()=>$('#csvInput').click();
+  $('#csvInput').onchange=async e=>{
+    const file=e.target.files[0]; if(!file)return;
+    if(file.size>2*1024*1024)return toast('CSV должен быть меньше 2 МБ');
+    try {
+      const rows=parseCSV(await file.text());
+      const header=rows.shift()?.map(v=>v.trim().toLowerCase());
+      if(!header || !['title','artist','album','url'].every(k=>header.includes(k)))throw new Error('Нужны колонки title,artist,album,url');
+      const get=(row,k)=>row[header.indexOf(k)]?.trim()||'';
+      add(rows.filter(r=>get(r,'title')).map(r=>entry(get(r,'title'),get(r,'artist')||'Неизвестный исполнитель',get(r,'album')||'Импорт',safeAudio(get(r,'url')))),true);
+    }catch(error){toast(`Ошибка CSV: ${error.message}`);}
+  };
+  $('#exportBtn').onclick=()=>{
+    const quote=s=>'"'+String(s||'').replace(/"/g,'""')+'"';
+    const csv=['title,artist,album,url',...queue.filter(t=>t.demo===undefined).map(t=>[t.title,t.artist,t.album,t.local?'':t.src].map(quote).join(','))].join('\r\n');
+    const url=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'}));
+    const a=document.createElement('a');a.href=url;a.download='vibe-collection.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
+  };
+  $('#lyricsBtn').onclick=()=>{
+    const query=prompt('Исполнитель и название',current?`${current.artist} ${current.title}`:'');
+    if(query)window.open(`https://genius.com/search?q=${encodeURIComponent(query)}`,'_blank','noopener,noreferrer');
+  };
+}
+function decodeSafe(s) { try{return decodeURIComponent(s);}catch{return s;} }
+view.addEventListener('click',e=>{
+  const playButton=e.target.closest('[data-play]'), likeButton=e.target.closest('[data-like]');
+  if(playButton)play(playButton.dataset.play); if(likeButton)like(likeButton.dataset.like);
+});
+input.oninput=()=>{if(location.hash!=='#search')location.hash='search';renderSearch(input.value);};
+window.addEventListener('hashchange',route);
+$('#playBtn').onclick=async()=>{
+  if(!current) return move(1);
+  if(audio.paused){try{await audio.play();}catch{toast('Не удалось воспроизвести аудио');}}else audio.pause();
+};
+$('#nextBtn').onclick=()=>move(1); $('#prevBtn').onclick=()=>move(-1);
+$('#shuffleBtn').onclick=()=>{shuffle=!shuffle;$('#shuffleBtn').setAttribute('aria-pressed',shuffle);toast(shuffle?'Перемешивание включено':'Перемешивание выключено');};
+$('#repeatBtn').onclick=()=>{repeat=!repeat;audio.loop=repeat;$('#repeatBtn').setAttribute('aria-pressed',repeat);};
+audio.volume=Number($('#volume').value);$('#volume').oninput=e=>audio.volume=Number(e.target.value);
+audio.onplay=()=>{$('#playBtn').textContent='Ⅱ';$('#playBtn').setAttribute('aria-label','Пауза');document.body.classList.add('playing');};
+audio.onpause=()=>{$('#playBtn').textContent='▶';$('#playBtn').setAttribute('aria-label','Воспроизвести');document.body.classList.remove('playing');};
+audio.onerror=()=>toast('Источник недоступен или формат не поддерживается браузером');
+audio.ontimeupdate=()=>{$('#progress').value=audio.duration?audio.currentTime/audio.duration*100:0;$('#currentTime').textContent=fmt(audio.currentTime);$('#duration').textContent=fmt(audio.duration);};
+$('#progress').oninput=e=>{if(Number.isFinite(audio.duration))audio.currentTime=Number(e.target.value)/100*audio.duration;};
+audio.onended=()=>{if(!repeat)move(1);};
+$('#playerLike').onclick=()=>{if(current)like(current.id);};
+$('#queueBtn').onclick=()=>location.hash='queue';
+$('.mobile-menu').onclick=()=>$('.sidebar').classList.toggle('open');
+document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();input.focus();}});
+route();

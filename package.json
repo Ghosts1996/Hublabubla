@@ -1,0 +1,19 @@
+{
+  "name": "vibe-music-player",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Vibe — personal music player for Android",
+  "scripts": {
+    "prepare:web": "node scripts/prepare-web.js",
+    "android:init": "npm run prepare:web && cap add android",
+    "android:sync": "npm run prepare:web && cap sync android",
+    "android:build": "npm run android:sync && cd android && gradle assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor/android": "^7.4.3",
+    "@capacitor/core": "^7.4.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^7.4.3"
+  }
+}
