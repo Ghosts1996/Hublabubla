@@ -10,7 +10,7 @@ const smartImport = context.VibeSmartImport;
 
 test('распознаёт официальный Spotify playlist URL', () => {
   assert.deepEqual(
-    smartImport.parseImportUrl('https://open.spotify.com/playlist/abc123?si=test'),
+    JSON.parse(JSON.stringify(smartImport.parseImportUrl('https://open.spotify.com/playlist/abc123?si=test'))),
     {
       originalUrl: 'https://open.spotify.com/playlist/abc123?si=test',
       source: 'spotify',

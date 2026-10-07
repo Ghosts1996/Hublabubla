@@ -19,8 +19,10 @@
       throw new Error('Нужна безопасная HTTPS-ссылка');
     }
 
+    if (url.port && url.port !== '443') throw new Error('Нестандартный порт не поддерживается');
     const host = url.hostname.toLowerCase();
     const segments = url.pathname.split('/').filter(Boolean);
+    if (/^intl-[a-z-]+$/i.test(segments[0]) && host === 'open.spotify.com') segments.shift();
     const rule = SOURCE_RULES.find(item => item.hosts.includes(host));
     if (!rule) throw new Error('Источник не поддерживается');
 
