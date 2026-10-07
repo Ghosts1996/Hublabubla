@@ -2,6 +2,13 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createImportClient } = require('../smart-import-client.js');
 const url = 'https://open.spotify.com/playlist/abc';
+test('сохраняет path-prefix backend', async () => {
+  const calls = [];
+  await createImportClient({ baseUrl: 'https://api.example.test/v1/', pollIntervalMs: 1,
+    fetchImpl: async request => { calls.push(String(request.url)); return { ok: true, json: async () => ({ data: calls.length === 1 ? { job_id: 'j' } : { job_id: 'j', status: 'completed', total: 0, processed: 0, items: [] } }) }; }
+  }).run(url);
+  assert.deepEqual(calls, ['https://api.example.test/v1/api/v1/import-jobs', 'https://api.example.test/v1/api/v1/import-jobs/j']);
+});
 function client(responses, options = {}) {
   return createImportClient({ baseUrl: 'https://api.example.test', pollIntervalMs: 1,
     fetchImpl: async () => ({ ok: true, json: async () => ({ data: responses.shift() }) }), ...options });

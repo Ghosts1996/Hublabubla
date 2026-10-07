@@ -18,6 +18,8 @@
     if (base.protocol !== 'https:' || base.username || base.password || base.search || base.hash) {
       throw new Error('Backend должен использовать HTTPS без учётных данных в URL');
     }
+    const prefix = base.pathname.replace(/\/+$/, '');
+    const endpoint = path => new URL(`${prefix}${path}`, base.origin);
     async function request(path, method, body, signal) {
       if (signal && signal.aborted) throw abortError();
       const controller = new AbortController();
@@ -28,7 +30,7 @@
       try {
         const accessToken = await token();
         if (controller.signal.aborted) throw abortError();
-        const response = await fetchImpl(new URL(path, base.origin), {
+        const response = await fetchImpl(endpoint(path), {
           method, signal: controller.signal,
           headers: { Accept: 'application/json', 'Content-Type': 'application/json',
             ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}) },
