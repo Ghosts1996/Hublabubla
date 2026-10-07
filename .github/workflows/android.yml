@@ -2,7 +2,7 @@ name: Android APK
 
 on:
   push:
-    branches: [feat/download-and-play]
+    branches: [feat/download-and-play, feat/music-player-mvp]
   workflow_dispatch:
 
 permissions:
