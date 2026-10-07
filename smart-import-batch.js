@@ -2,12 +2,14 @@
 
 (function (root) {
   function createBatchMatcher(options) {
+    const smartImport = root.VibeSmartImport || (typeof require === 'function' ? require('./smart-import.js') : null);
+    if (!smartImport) throw new Error('Модуль нормализации импорта не подключён');
     const search = options && options.search;
     const concurrency = Math.max(1, Math.min(Number(options && options.concurrency) || 3, 8));
     if (typeof search !== 'function') throw new TypeError('Нужна функция поиска трека');
 
     return async function matchAll(rawTracks, signal) {
-      const tracks = root.VibeSmartImport.deduplicateTracks(rawTracks);
+      const tracks = smartImport.deduplicateTracks(rawTracks);
       const results = new Array(tracks.length);
       let nextIndex = 0;
 
