@@ -23,7 +23,40 @@ let history = load('vibe-history', []);
 let queue = [...tracks, ...imported];
 let current = null, shuffle = false, repeat = false, playRequest = 0;
 let remoteResults = [], remoteSearchRequest = 0, archiveController = null;
+let searchLoading = false;
 const searchCache = new Map();
+const pendingAudio = new Map();
+const lyricsCache = new Map();
+let lyricsRequest = 0, lyricsController;
+function resetLyrics() {
+  lyricsRequest++; lyricsController?.abort();
+  $('#lyricsPanel').hidden=true;
+  $('#fullLyrics').setAttribute('aria-expanded','false');
+  $('#lyricsText').textContent=''; $('#lyricsStatus').textContent='';
+}
+$('#fullLyrics').onclick=async()=>{
+  const panel=$('#lyricsPanel');
+  if(!panel.hidden){resetLyrics();return;}
+  if(!current){toast('Сначала выбери трек');return;}
+  const track=current, request=++lyricsRequest;
+  lyricsController?.abort();
+  lyricsController=typeof AbortController==='function'?new AbortController():null;
+  panel.hidden=false;$('#fullLyrics').setAttribute('aria-expanded','true');
+  $('#lyricsStatus').textContent='Ищем текст…';$('#lyricsText').textContent='';
+  try {
+    const key=JSON.stringify([track.artist,track.title]);
+    let data=lyricsCache.get(key);
+    if(!data){
+      const params=new URLSearchParams({artist_name:track.artist,track_name:track.title});
+      data=await fetchJSON(`https://lrclib.net/api/get?${params}`,{signal:lyricsController?.signal});
+      lyricsCache.set(key,data);if(lyricsCache.size>30)lyricsCache.delete(lyricsCache.keys().next().value);
+    }
+    if(request!==lyricsRequest||current!==track)return;
+    const text=data.plainLyrics || String(data.syncedLyrics||'').replace(/\[\d+:\d+(?:\.\d+)?\]/g,'');
+    $('#lyricsText').textContent=text;
+    $('#lyricsStatus').textContent=data.instrumental?'Инструментальная композиция':text?'':'Текст для этой записи не найден';
+  }catch(error){if(request===lyricsRequest&&error.name!=='AbortError')$('#lyricsStatus').textContent=`Не удалось загрузить текст: ${error.message}`;}
+};
   const fullPlayer = $('#fullPlayer');
   const syncPlayer = () => {
     if (!current) return;
@@ -36,10 +69,21 @@ const searchCache = new Map();
   function remoteTrack(item) {
     return {id:`archive-${item.identifier}`, title:item.title || item.identifier || 'Без названия', artist:Array.isArray(item.creator)?item.creator.join(', '):(item.creator || 'Internet Archive'), album:'Открытая библиотека · Internet Archive', cover:'gradient-5', time:'—', sourceId:item.identifier, openSource:true};
   }
+  async function fetchJSON(url, {signal, timeout=12000}={}) {
+    const controller = typeof AbortController === 'function' ? new AbortController() : null;
+    const abort = () => controller?.abort();
+    let timer;
+    try {
+      if (signal?.aborted) { const error=new Error('Cancelled'); error.name='AbortError'; throw error; }
+      signal?.addEventListener('abort', abort, {once:true});
+      return await Promise.race([
+        (async()=>{const response=await fetch(url, controller ? {signal:controller.signal} : {});if(!response.ok)throw new Error(response.status===404?'Не найдено':'Источник временно недоступен');return response.json();})(),
+        new Promise((_,reject)=>{timer=setTimeout(()=>{const error=new Error('Источник не ответил. Попробуй снова.');error.name='TimeoutError';reject(error);abort();},timeout);})
+      ]);
+    } finally {clearTimeout(timer);signal?.removeEventListener('abort',abort);}
+  }
   async function findArchiveAudio(identifier) {
-    const response = await fetch(`https://archive.org/metadata/${encodeURIComponent(identifier)}`);
-    if (!response.ok) throw new Error('Не удалось получить аудиофайл');
-    const data = await response.json();
+    const data = await fetchJSON(`https://archive.org/metadata/${encodeURIComponent(identifier)}`);
     const file = (data.files || []).find(f => /\.(mp3|ogg|oga|m4a|wav)$/i.test(f.name || '') && !/sample|thumb|preview/i.test(f.name || ''));
     if (!file) throw new Error('В результате нет открытого аудиофайла');
     return `https://archive.org/download/${encodeURIComponent(identifier)}/${file.name.split('/').map(encodeURIComponent).join('/')}`;
@@ -50,21 +94,25 @@ const searchCache = new Map();
       archiveController = typeof AbortController === 'function' ? new AbortController() : null;
     if (!query.trim()) { remoteResults=[]; return route(); }
     const normalized = query.trim().toLowerCase();
-    if (searchCache.has(normalized)) { remoteResults = searchCache.get(normalized); renderSearch(input.value); return; }
+    if (searchCache.has(normalized)) { searchLoading=false; remoteResults = searchCache.get(normalized); renderSearch(input.value); return; }
+    searchLoading=true;
     try {
-      const params = new URLSearchParams({q:`(${query.trim()}) AND mediatype:audio`, 'fl[]':'identifier,title,creator', rows:'20', page:'1', output:'json'});
-      const response = await fetch(`https://archive.org/advancedsearch.php?${params}`, archiveController ? {signal: archiveController.signal} : {});
-      if (!response.ok) throw new Error('Сервис поиска недоступен');
-      const data = await response.json();
+      const params = new URLSearchParams({q:`${query.trim().split(/\s+/).map(word=>'"'+word.replace(/["\\]/g,'')+'"').join(' AND ')} AND mediatype:audio`, 'fl[]':'identifier,title,creator', rows:'20', page:'1', output:'json'});
+      const data = await fetchJSON(`https://archive.org/advancedsearch.php?${params}`, {signal:archiveController?.signal});
       if (request !== remoteSearchRequest) return;
+      searchLoading=false;
       remoteResults=(data.response?.docs || []).map(remoteTrack);
       searchCache.set(normalized, remoteResults);
       if (searchCache.size > 20) searchCache.delete(searchCache.keys().next().value);
       renderSearch(input.value);
-    } catch(error) { if (error.name === 'AbortError') return; if(request===remoteSearchRequest) { remoteResults=[]; renderSearch(input.value,error.message); } }
+    } catch(error) { if (error.name === 'AbortError') return; if(request===remoteSearchRequest) { searchLoading=false; remoteResults=[]; renderSearch(input.value,error.message); } }
   }
   async function materializeRemote(track) {
-    if (!track.src) track.src=await findArchiveAudio(track.sourceId);
+    if (!track.src) {
+      let pending=pendingAudio.get(track.sourceId);
+      if(!pending){pending=findArchiveAudio(track.sourceId);pendingAudio.set(track.sourceId,pending);}
+      try{track.src=await pending;}finally{if(pendingAudio.get(track.sourceId)===pending)pendingAudio.delete(track.sourceId);}
+    }
     if (!queue.some(t=>t.id===track.id)) { queue.push(track); imported.push(track); save('vibe-imported', imported); }
     return track;
   }
@@ -110,9 +158,10 @@ function renderDiscover() {
 }
 function renderSearch(query='', error='') {
   const local = allTracks().filter(t => `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(query.toLowerCase()));
-  const found = [...local, ...remoteResults.filter(r=>!local.some(t=>t.id===r.id))];
-  const remoteRows = remoteResults.length ? `<div class="track-list">${remoteResults.map((t,i)=>`<div class="track"><span class="track-num">${String(i+1).padStart(2,'0')}</span>${cover(t,true)}<button class="track-info" data-archive-play="${escapeHTML(t.id)}"><div class="track-name">${escapeHTML(t.title)}</div><div class="track-author">${escapeHTML(t.artist)} · ${escapeHTML(t.album)}</div></button><span class="track-time">♫</span><button class="track-like ${liked.includes(t.id)?'liked':''}" data-archive-like="${escapeHTML(t.id)}" aria-label="Добавить в избранное" aria-pressed="${liked.includes(t.id)}">${liked.includes(t.id)?'♥':'♡'}</button><button class="track-download" data-archive-download="${escapeHTML(t.id)}" aria-label="Скачать трек">⇩</button></div>`).join('')}</div>` : '';
-  view.innerHTML = `<section class="hero compact"><div><div class="eyebrow">ПОИСК · КОЛЛЕКЦИЯ И ОТКРЫТЫЙ АРХИВ</div><h1>${query?escapeHTML(query):'Найди свой звук.'}</h1><p>В коллекции: ${local.length} · в открытом архиве: ${remoteResults.length}</p>${error?`<p role="status">${escapeHTML(error)}</p>`:''}</div></section><section class="section">${local.length?rows(local):''}${remoteRows}${!local.length&&!remoteResults.length?`<div class="empty"><strong>${query?'Ищем в открытом аудиоархиве…':'Введи название трека или исполнителя'}</strong>Поиск доступен по Internet Archive; каталог не включает все коммерческие релизы.</div>`:''}</section>`;
+  
+  const remoteOnly = remoteResults.filter(r => !local.some(t => t.id === r.id));
+    const remoteRows = remoteOnly.length ? `<div class="track-list">${remoteOnly.map((t,i)=>`<div class="track"><span class="track-num">${String(i+1).padStart(2,'0')}</span>${cover(t,true)}<button class="track-info" data-archive-play="${escapeHTML(t.id)}"><div class="track-name">${escapeHTML(t.title)}</div><div class="track-author">${escapeHTML(t.artist)} · ${escapeHTML(t.album)}</div></button><span class="track-time">♫</span><button class="track-like ${liked.includes(t.id)?'liked':''}" data-archive-like="${escapeHTML(t.id)}" aria-label="Добавить в избранное" aria-pressed="${liked.includes(t.id)}">${liked.includes(t.id)?'♥':'♡'}</button><button class="track-download" data-archive-download="${escapeHTML(t.id)}" aria-label="Скачать трек">⇩</button></div>`).join('')}</div>` : '';
+  view.innerHTML = `<section class="hero compact"><div><div class="eyebrow">ПОИСК · КОЛЛЕКЦИЯ И ОТКРЫТЫЙ АРХИВ</div><h1>${query?escapeHTML(query):'Найди свой звук.'}</h1><p>В коллекции: ${local.length} · в открытом архиве: ${remoteOnly.length}</p>${error?`<p role="status">${escapeHTML(error)}</p>`:''}</div></section><section class="section">${local.length?rows(local):''}${remoteRows}${!local.length&&!remoteOnly.length?`<div class="empty"><strong>${query?(searchLoading?'Ищем в открытом аудиоархиве…':error?'Поиск недоступен — попробуй снова':'Ничего не найдено'):'Введи название трека или исполнителя'}</strong>Поиск доступен по Internet Archive; каталог не включает все коммерческие релизы.</div>`:''}</section>`;
 }
 function renderWave() {
   const recent = history.map(id => allTracks().find(t => t.id === id)).filter(Boolean);
@@ -149,6 +198,7 @@ async function play(id) {
   if(!track.src && track.demo!==undefined) track.src=demoAudio(track.demo);
   if(!track.src) { toast('Это метаданные, не аудиофайл. Добавь локальный файл или прямую HTTPS-ссылку.'); return; }
   const request=++playRequest;
+  if(current?.id!==track.id) resetLyrics();
   current=track; history=[track.id,...history.filter(id=>id!==track.id)].slice(0,30); save('vibe-history',history); audio.src=track.src;
   $('#playerTitle').textContent=track.title; $('#playerArtist').textContent=track.artist;
   $('#playerCover').className=`mini-cover ${track.cover}`; updateCounts();
@@ -163,9 +213,12 @@ function move(direction) {
   play(next.id);
 }
 function add(list, favorite=false) {
-  queue.push(...list); imported.push(...list.filter(t=>!t.local));
-  if(favorite) liked=[...new Set([...liked,...list.map(t=>t.id)])];
-  save('vibe-imported',imported); save('vibe-liked',liked); updateCounts(); toast(`Добавлено: ${list.length}`);
+  const known=new Set(queue.map(track=>track.id));
+    const fresh=list.filter(track=>{if(known.has(track.id))return false;known.add(track.id);return true;});
+    if(!fresh.length)return toast('Эти треки уже добавлены');
+    queue.push(...fresh); imported.push(...fresh.filter(t=>!t.local));
+  if(favorite) liked=[...new Set([...liked,...fresh.map(t=>t.id)])];
+  save('vibe-imported',imported); save('vibe-liked',liked); updateCounts(); toast(`Добавлено: ${fresh.length}`);
 }
 function entry(title,artist,album,src='') { return {id:crypto.randomUUID ? crypto.randomUUID() : `track-${Date.now()}-${Math.random()}`,title,artist,album,src,cover:'gradient-6',time:'—'}; }
 // RFC-style quoted fields, commas and line breaks; no HTML interpretation.
@@ -184,7 +237,7 @@ function parseCSV(text) {
   return rows;
 }
 function renderImports() {
-  view.innerHTML=`<section class="hero compact"><div><div class="eyebrow">ТВОЯ МУЗЫКА РЯДОМ</div><h1>Наполни свой<br><span>мир звуком.</span></h1><p>Локальные файлы, прямые аудиоссылки и импорт метаданных.</p></div></section><section class="section"><div class="import-grid"><article class="import-card"><div class="import-icon">↥</div><h3>Файлы с устройства</h3><p>Выбирай сразу несколько файлов. Аудио не отправляется на сервер. После закрытия страницы файлы нужно выбрать снова. Поддержка форматов зависит от браузера.</p><button id="fileBtn">Выбрать музыку</button><input id="fileInput" type="file" accept="audio/*,.flac,.mp3,.wav,.ogg,.m4a" multiple hidden></article><article class="import-card"><div class="import-icon">↗</div><h3>Прямые аудиоссылки</h3><p>Одна HTTPS-ссылка на файл в каждой строке. Страницы Spotify/VK/Яндекс не являются аудиофайлами и здесь не воспроизводятся.</p><label for="bulkLinks">Ссылки на аудио</label><textarea id="bulkLinks" rows="4" placeholder="https://example.com/music.mp3"></textarea><button id="bulkBtn">Добавить в избранное</button></article><article class="import-card"><div class="import-icon">▤</div><h3>Импорт CSV</h3><p>Колонки title,artist,album,url. Если url пустой, импортируются только метаданные. Кавычки и запятые в названиях поддерживаются.</p><button id="csvBtn">Открыть CSV</button><input id="csvInput" type="file" accept=".csv,text/csv" hidden><button id="exportBtn">Экспорт коллекции</button></article><article class="import-card"><div class="import-icon">♫</div><h3>Тексты песен</h3><p>Поиск на сайте Genius. Для текущего трека запрос заполнится автоматически. Встроенные тексты через API требуют отдельного backend.</p><button id="lyricsBtn">Найти в Genius ↗</button></article></div></section>`;
+  view.innerHTML=`<section class="hero compact"><div><div class="eyebrow">ТВОЯ МУЗЫКА РЯДОМ</div><h1>Наполни свой<br><span>мир звуком.</span></h1><p>Локальные файлы, прямые аудиоссылки и импорт метаданных.</p></div></section><section class="section"><div class="import-grid"><article class="import-card"><div class="import-icon">↥</div><h3>Файлы с устройства</h3><p>Выбирай сразу несколько файлов. Аудио не отправляется на сервер. После закрытия страницы файлы нужно выбрать снова. Поддержка форматов зависит от браузера.</p><button id="fileBtn">Выбрать музыку</button><input id="fileInput" type="file" accept="audio/*,.flac,.mp3,.wav,.ogg,.m4a" multiple hidden></article><article class="import-card"><div class="import-icon">↗</div><h3>Прямые аудиоссылки</h3><p>Одна HTTPS-ссылка на файл в каждой строке. Страницы Spotify/VK/Яндекс не являются аудиофайлами и здесь не воспроизводятся.</p><label for="bulkLinks">Ссылки на аудио</label><textarea id="bulkLinks" rows="4" placeholder="https://example.com/music.mp3"></textarea><button id="bulkBtn">Добавить в избранное</button></article><article class="import-card"><div class="import-icon">▤</div><h3>Импорт CSV</h3><p>Колонки title,artist,album,url. Если url пустой, импортируются только метаданные. Кавычки и запятые в названиях поддерживаются.</p><button id="csvBtn">Открыть CSV</button><input id="csvInput" type="file" accept=".csv,text/csv" hidden><button id="exportBtn">Экспорт коллекции</button></article><article class="import-card"><div class="import-icon">♫</div><h3>Тексты песен</h3><p>Текст откроется прямо в полноэкранном плеере, без перехода на сайты.</p><button id="lyricsBtn">Показать текст</button></article></div></section>`;
   $('#fileBtn').onclick=()=>$('#fileInput').click();
   $('#fileInput').onchange=e=>add([...e.target.files].map(f=>({...entry(f.name.replace(/\.[^.]+$/,''),'Локальный файл','С устройства',URL.createObjectURL(f)),local:true,cover:'gradient-7'})));
   $('#bulkBtn').onclick=()=>{
@@ -212,10 +265,7 @@ function renderImports() {
     const url=URL.createObjectURL(new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8'}));
     const a=document.createElement('a');a.href=url;a.download='vibe-collection.csv';a.click();setTimeout(()=>URL.revokeObjectURL(url),1000);
   };
-  $('#lyricsBtn').onclick=()=>{
-    const query=prompt('Исполнитель и название',current?`${current.artist} ${current.title}`:'');
-    if(query)window.open(`https://genius.com/search?q=${encodeURIComponent(query)}`,'_blank','noopener,noreferrer');
-  };
+  $('#lyricsBtn').onclick=()=>{if(!current)return toast('Сначала выбери трек');$('#openPlayer').click();if($('#lyricsPanel').hidden)$('#fullLyrics').click();};
 }
 function decodeSafe(s) { try{return decodeURIComponent(s);}catch{return s;} }
 view.addEventListener('click',async e=>{
@@ -235,7 +285,7 @@ input.oninput=()=>{
   clearTimeout(searchTimer);
   remoteSearchRequest++;
   archiveController?.abort();
-  remoteResults=[];
+  remoteResults=[]; searchLoading=!!input.value.trim();
   if(location.hash!=='#search')location.hash='search';
   renderSearch(input.value);
   if(input.value.trim().length>=2)searchTimer=setTimeout(()=>searchArchive(input.value.trim()),320);
@@ -264,7 +314,7 @@ $('#fullPlay').onclick=()=>$('#playBtn').click();
 $('#fullNext').onclick=()=>move(1); $('#fullPrev').onclick=()=>move(-1);
 $('#fullShuffle').onclick=()=>$('#shuffleBtn').click(); $('#fullRepeat').onclick=()=>$('#repeatBtn').click();
 $('#fullLike').onclick=()=>{if(current){like(current.id);syncPlayer();}};
-$('#fullQueue').onclick=()=>{fullPlayer.hidden=true;location.hash='queue';};
+$('#fullQueue').onclick=()=>{closeFullPlayer();location.hash='queue';};
 audio.onended=()=>{if(!repeat)move(1);};
 $('#playerLike').onclick=e=>{e.stopPropagation();if(current)like(current.id);};
 $('#queueBtn').onclick=()=>location.hash='queue';

@@ -49,8 +49,10 @@
       <div class="full-meta"><strong id="fullTitle">Выбери свой вайб</strong><span id="fullArtist">Здесь будет играть музыка</span></div>
       <div class="full-progress"><span id="fullCurrent">0:00</span><input id="fullProgress" type="range" min="0" max="100" value="0" aria-label="Прогресс трека"><span id="fullDuration">0:00</span></div>
       <div class="full-controls"><button id="fullShuffle" aria-label="Перемешать">⤨</button><button id="fullPrev" aria-label="Предыдущий трек">◀◀</button><button id="fullPlay" class="full-play" aria-label="Воспроизвести">▶</button><button id="fullNext" aria-label="Следующий трек">▶▶</button><button id="fullRepeat" aria-label="Повтор">↻</button></div>
-      <div class="full-actions"><button id="fullLike">♡ Любимое</button><button id="fullQueue">≡ Очередь</button></div>
+      <div class="full-actions"><button id="fullLike">♡ Любимое</button><button id="fullQueue">≡ Очередь</button><button id="fullLyrics" aria-expanded="false" aria-controls="lyricsPanel">Текст</button></div>
+      <section id="lyricsPanel" class="lyrics-panel" hidden aria-label="Текст песни"><p id="lyricsStatus" role="status"></p><pre id="lyricsText"></pre><small>Источник: LRCLIB. Текст может отсутствовать для этой записи.</small></section>
     </section>
+
   <audio id="audio"></audio>
   <script src="app.js"></script>
 </body>
