@@ -21,7 +21,31 @@ let imported = load('vibe-imported', []).filter(t => t && typeof t.id === 'strin
 let liked = load('vibe-liked', []);
 let queue = [...tracks, ...imported];
 let current = null, shuffle = false, repeat = false, playRequest = 0;
-const allTracks = () => queue;
+let remoteResults = [], remoteSearchRequest = 0;
+  const allTracks = () => queue;
+  function remoteTrack(item) {
+    return {id:`archive-${item.identifier}`, title:item.title || item.identifier || 'Без названия', artist:Array.isArray(item.creator)?item.creator.join(', '):(item.creator || 'Internet Archive'), album:'Открытая библиотека · Internet Archive', cover:'gradient-5', time:'—', sourceId:item.identifier, openSource:true};
+  }
+  async function findArchiveAudio(identifier) {
+    const response = await fetch(`https://archive.org/metadata/${encodeURIComponent(identifier)}`);
+    if (!response.ok) throw new Error('Не удалось получить аудиофайл');
+    const data = await response.json();
+    const file = (data.files || []).find(f => /\.(mp3|ogg|oga|m4a|wav)$/i.test(f.name || '') && !/sample|thumb|preview/i.test(f.name || ''));
+    if (!file) throw new Error('В результате нет открытого аудиофайла');
+    return `https://archive.org/download/${encodeURIComponent(identifier)}/${file.name.split('/').map(encodeURIComponent).join('/')}`;
+  }
+  async function searchArchive(query) {
+    const request = ++remoteSearchRequest;
+    if (!query.trim()) { remoteResults=[]; return route(); }
+    try {
+      const params = new URLSearchParams({q:`(${query.trim()}) AND mediatype:audio`, 'fl[]':'identifier,title,creator', rows:'20', page:'1', output:'json'});
+      const response = await fetch(`https://archive.org/advancedsearch.php?${params}`);
+      if (!response.ok) throw new Error('Сервис поиска недоступен');
+      const data = await response.json();
+      if (request !== remoteSearchRequest) return;
+      remoteResults=(data.response?.docs || []).map(remoteTrack); renderSearch(input.value);
+    } catch(error) { if(request===remoteSearchRequest) { remoteResults=[]; renderSearch(input.value,error.message); } }
+  }
 function safeAudio(value) {
   try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password ? u.href : ''; }
   catch { return ''; }
@@ -62,9 +86,11 @@ function rows(list) { return list.length ? `<div class="track-list">${list.map(t
 function renderDiscover() {
   view.innerHTML = `<section class="hero"><div><div class="eyebrow">ТВОЯ ЛИЧНАЯ МУЗЫКАЛЬНАЯ ВСЕЛЕННАЯ</div><h1>Поймай<br><span>свой ритм.</span></h1><p>Без подписок. Без лишнего шума. Только ты и музыка.</p><div class="hero-actions"><button class="primary" data-play="demo-1">▶ Слушать демо</button><a class="secondary" href="#imports">↥ Добавить музыку</a></div><small class="hero-note">Три оригинальных синтезированных демо работают офлайн</small></div><div class="hero-art" aria-hidden="true"><div class="vinyl"><div class="vinyl-label">vibe<br><small>SIDE A / 33 RPM</small></div></div><div class="art-caption">YOUR SOUND. YOUR SPACE.</div></div></section><section class="section"><div class="section-head"><h2>Звук на пробу</h2><span class="section-tag">VIBE ORIGINALS</span></div><div class="cards">${tracks.map(t=>`<article class="card">${cover(t)}<div class="card-title">${escapeHTML(t.title)}</div><div class="card-subtitle">${escapeHTML(t.artist)} · офлайн-демо</div></article>`).join('')}</div></section><section class="section"><div class="section-head"><h2>Твоя коллекция</h2><a class="see-all" href="#library">Все треки →</a></div>${rows(queue.filter(t=>t.demo===undefined).slice(-5))}</section>`;
 }
-function renderSearch(query='') {
-  const found = allTracks().filter(t => `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(query.toLowerCase()));
-  view.innerHTML = `<section class="hero compact"><div><div class="eyebrow">ПОИСК В КОЛЛЕКЦИИ</div><h1>${query?escapeHTML(query):'Найди свой звук.'}</h1><p>Найдено: ${found.length}</p></div></section><section class="section">${rows(found)}</section>`;
+function renderSearch(query='', error='') {
+  const local = allTracks().filter(t => `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(query.toLowerCase()));
+  const found = [...local, ...remoteResults.filter(r=>!local.some(t=>t.id===r.id))];
+  const remoteRows = remoteResults.length ? `<div class="track-list">${remoteResults.map((t,i)=>`<div class="track"><span class="track-num">${String(i+1).padStart(2,'0')}</span>${cover(t,true)}<button class="track-info" data-archive="${escapeHTML(t.id)}"><div class="track-name">${escapeHTML(t.title)}</div><div class="track-author">${escapeHTML(t.artist)} · ${escapeHTML(t.album)}</div></button><span class="track-time">♫</span><span></span></div>`).join('')}</div>` : '';
+  view.innerHTML = `<section class="hero compact"><div><div class="eyebrow">ПОИСК · КОЛЛЕКЦИЯ И ОТКРЫТЫЙ АРХИВ</div><h1>${query?escapeHTML(query):'Найди свой звук.'}</h1><p>В коллекции: ${local.length} · в открытом архиве: ${remoteResults.length}</p>${error?`<p role="status">${escapeHTML(error)}</p>`:''}</div></section><section class="section">${local.length?rows(local):''}${remoteRows}${!local.length&&!remoteResults.length?`<div class="empty"><strong>${query?'Ищем в открытом аудиоархиве…':'Введи название трека или исполнителя'}</strong>Поиск доступен по Internet Archive; каталог не включает все коммерческие релизы.</div>`:''}</section>`;
 }
 function route() {
   const page = location.hash.slice(1)||'discover';
@@ -163,11 +189,13 @@ function renderImports() {
   };
 }
 function decodeSafe(s) { try{return decodeURIComponent(s);}catch{return s;} }
-view.addEventListener('click',e=>{
-  const playButton=e.target.closest('[data-play]'), likeButton=e.target.closest('[data-like]');
+view.addEventListener('click',async e=>{
+  const playButton=e.target.closest('[data-play]'), likeButton=e.target.closest('[data-like]'), archiveButton=e.target.closest('[data-archive]');
   if(playButton)play(playButton.dataset.play); if(likeButton)like(likeButton.dataset.like);
+  if(archiveButton){const track=remoteResults.find(t=>t.id===archiveButton.dataset.archive);if(!track)return;try{track.src=await findArchiveAudio(track.sourceId);if(!queue.some(t=>t.id===track.id)){queue.push(track);save('vibe-imported',queue.filter(t=>!tracks.some(x=>x.id===t.id)));}await play(track.id);}catch(error){toast(error.message || 'Не удалось открыть трек');}}
 });
-input.oninput=()=>{if(location.hash!=='#search')location.hash='search';renderSearch(input.value);};
+let searchTimer;
+input.oninput=()=>{if(location.hash!=='#search')location.hash='search';renderSearch(input.value);clearTimeout(searchTimer);if(input.value.trim().length>=2){searchTimer=setTimeout(()=>searchArchive(input.value.trim()),450);}else{remoteSearchRequest++;remoteResults=[];}};
 window.addEventListener('hashchange',route);
 $('#playBtn').onclick=async()=>{
   if(!current) return move(1);
