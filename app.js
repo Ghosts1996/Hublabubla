@@ -46,7 +46,12 @@ let remoteResults = [], remoteSearchRequest = 0;
       remoteResults=(data.response?.docs || []).map(remoteTrack); renderSearch(input.value);
     } catch(error) { if(request===remoteSearchRequest) { remoteResults=[]; renderSearch(input.value,error.message); } }
   }
-function safeAudio(value) {
+  async function materializeRemote(track) {
+    if (!track.src) track.src=await findArchiveAudio(track.sourceId);
+    if (!queue.some(t=>t.id===track.id)) { queue.push(track); imported.push(track); save('vibe-imported', imported); }
+    return track;
+  }
+  function safeAudio(value) {
   try { const u = new URL(value); return u.protocol === 'https:' && !u.username && !u.password ? u.href : ''; }
   catch { return ''; }
 }
@@ -89,7 +94,7 @@ function renderDiscover() {
 function renderSearch(query='', error='') {
   const local = allTracks().filter(t => `${t.title} ${t.artist} ${t.album}`.toLowerCase().includes(query.toLowerCase()));
   const found = [...local, ...remoteResults.filter(r=>!local.some(t=>t.id===r.id))];
-  const remoteRows = remoteResults.length ? `<div class="track-list">${remoteResults.map((t,i)=>`<div class="track"><span class="track-num">${String(i+1).padStart(2,'0')}</span>${cover(t,true)}<button class="track-info" data-archive="${escapeHTML(t.id)}"><div class="track-name">${escapeHTML(t.title)}</div><div class="track-author">${escapeHTML(t.artist)} · ${escapeHTML(t.album)}</div></button><span class="track-time">♫</span><span></span></div>`).join('')}</div>` : '';
+  const remoteRows = remoteResults.length ? `<div class="track-list">${remoteResults.map((t,i)=>`<div class="track"><span class="track-num">${String(i+1).padStart(2,'0')}</span>${cover(t,true)}<button class="track-info" data-archive-play="${escapeHTML(t.id)}"><div class="track-name">${escapeHTML(t.title)}</div><div class="track-author">${escapeHTML(t.artist)} · ${escapeHTML(t.album)}</div></button><span class="track-time">♫</span><button class="track-like ${liked.includes(t.id)?'liked':''}" data-archive-like="${escapeHTML(t.id)}" aria-label="Добавить в избранное" aria-pressed="${liked.includes(t.id)}">${liked.includes(t.id)?'♥':'♡'}</button><button class="track-download" data-archive-download="${escapeHTML(t.id)}" aria-label="Скачать трек">⇩</button></div>`).join('')}</div>` : '';
   view.innerHTML = `<section class="hero compact"><div><div class="eyebrow">ПОИСК · КОЛЛЕКЦИЯ И ОТКРЫТЫЙ АРХИВ</div><h1>${query?escapeHTML(query):'Найди свой звук.'}</h1><p>В коллекции: ${local.length} · в открытом архиве: ${remoteResults.length}</p>${error?`<p role="status">${escapeHTML(error)}</p>`:''}</div></section><section class="section">${local.length?rows(local):''}${remoteRows}${!local.length&&!remoteResults.length?`<div class="empty"><strong>${query?'Ищем в открытом аудиоархиве…':'Введи название трека или исполнителя'}</strong>Поиск доступен по Internet Archive; каталог не включает все коммерческие релизы.</div>`:''}</section>`;
 }
 function route() {
@@ -190,9 +195,16 @@ function renderImports() {
 }
 function decodeSafe(s) { try{return decodeURIComponent(s);}catch{return s;} }
 view.addEventListener('click',async e=>{
-  const playButton=e.target.closest('[data-play]'), likeButton=e.target.closest('[data-like]'), archiveButton=e.target.closest('[data-archive]');
+  const playButton=e.target.closest('[data-play]'), likeButton=e.target.closest('[data-like]');
+  const remotePlay=e.target.closest('[data-archive-play]'), remoteLike=e.target.closest('[data-archive-like]'), remoteDownload=e.target.closest('[data-archive-download]');
   if(playButton)play(playButton.dataset.play); if(likeButton)like(likeButton.dataset.like);
-  if(archiveButton){const track=remoteResults.find(t=>t.id===archiveButton.dataset.archive);if(!track)return;try{track.src=await findArchiveAudio(track.sourceId);if(!queue.some(t=>t.id===track.id)){queue.push(track);save('vibe-imported',queue.filter(t=>!tracks.some(x=>x.id===t.id)));}await play(track.id);}catch(error){toast(error.message || 'Не удалось открыть трек');}}
+  const remoteId=remotePlay?.dataset.archivePlay || remoteLike?.dataset.archiveLike || remoteDownload?.dataset.archiveDownload;
+  if(!remoteId)return;
+  const track=remoteResults.find(t=>t.id===remoteId) || queue.find(t=>t.id===remoteId); if(!track)return;
+  try {
+    if(remoteLike){ await materializeRemote(track); liked=liked.includes(track.id)?liked.filter(id=>id!==track.id):[...liked,track.id]; save('vibe-liked',liked); renderSearch(input.value); updateCounts(); toast(liked.includes(track.id)?'Добавлено в избранное':'Удалено из избранного'); }
+    else { await materializeRemote(track); if(remoteDownload){const link=document.createElement('a');link.href=track.src;link.download=`${track.artist} - ${track.title}.mp3`.replace(/[\\/:*?"<>|]/g,'_');link.target='_blank';link.rel='noopener';link.click();toast('Загрузка началась');} else await play(track.id); }
+  } catch(error) { toast(error.message || 'Не удалось открыть трек'); }
 });
 let searchTimer;
 input.oninput=()=>{if(location.hash!=='#search')location.hash='search';renderSearch(input.value);clearTimeout(searchTimer);if(input.value.trim().length>=2){searchTimer=setTimeout(()=>searchArchive(input.value.trim()),450);}else{remoteSearchRequest++;remoteResults=[];}};
