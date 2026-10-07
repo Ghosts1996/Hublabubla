@@ -47,8 +47,8 @@
   function normalizeTrack(track) {
     const value = track || {};
     const clean = text => String(text || '')
-      .replace(/\[[^\]]*\]/g, '')
-      .replace(/\([^)]*(prod\.?|remix|version|edit)[^)]*\)/gi, '')
+      .replace(/\[(?:official\s+(?:video|audio)|lyrics?)\]/gi, '')
+      .replace(/\(prod\.?\s+(?:by\s+)?[^)]*\)/gi, '')
       .replace(/\s+/g, ' ')
       .trim();
     const title = clean(value.title);

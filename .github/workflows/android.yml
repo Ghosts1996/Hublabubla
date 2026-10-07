@@ -25,7 +25,9 @@ jobs:
       - name: Install dependencies
         run: npm install
       - name: Check JavaScript and regression tests
-        run: node --check app.js && node --test tests/*.test.cjs
+        run: |
+          for file in app.js smart-import*.js; do node --check "$file"; done
+          node --test tests/*.test.cjs
       - name: Prepare web assets
         run: npm run prepare:web
       - name: Add Android platform

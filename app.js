@@ -236,19 +236,61 @@ function parseCSV(text) {
   row.push(field);if(row.some(v=>v.trim()))rows.push(row);
   return rows;
 }
+let activeImportController=null;
+window.addEventListener('hashchange',()=>{ if(activeImportController) activeImportController.abort(); });
 function renderImports() {
-  view.innerHTML=`<section class="hero compact"><div><div class="eyebrow">ТВОЯ МУЗЫКА РЯДОМ</div><h1>Наполни свой<br><span>мир звуком.</span></h1><p>Локальные файлы, прямые аудиоссылки и импорт метаданных.</p></div></section><section class="section"><div class="import-grid"><article class="import-card"><div class="import-icon">↥</div><h3>Файлы с устройства</h3><p>Выбирай сразу несколько файлов. Аудио не отправляется на сервер. После закрытия страницы файлы нужно выбрать снова. Поддержка форматов зависит от браузера.</p><button id="fileBtn">Выбрать музыку</button><input id="fileInput" type="file" accept="audio/*,.flac,.mp3,.wav,.ogg,.m4a" multiple hidden></article><article class="import-card"><div class="import-icon">↗</div><h3>Прямые аудиоссылки</h3><p>Одна HTTPS-ссылка на файл в каждой строке. Страницы Spotify/VK/Яндекс не являются аудиофайлами и здесь не воспроизводятся.</p><label for="bulkLinks">Ссылки на аудио</label><textarea id="bulkLinks" rows="4" placeholder="https://example.com/music.mp3"></textarea><button id="bulkBtn">Добавить в избранное</button></article><article class="import-card"><div class="import-icon">▤</div><h3>Импорт CSV</h3><p>Колонки title,artist,album,url. Если url пустой, импортируются только метаданные. Кавычки и запятые в названиях поддерживаются.</p><button id="csvBtn">Открыть CSV</button><input id="csvInput" type="file" accept=".csv,text/csv" hidden><button id="exportBtn">Экспорт коллекции</button></article><article class="import-card"><div class="import-icon">⇄</div><h3>Умный импорт</h3><p>Вставь официальную ссылку на альбом или плейлист. Backend получит треклист через API, сопоставит треки и добавит найденные позиции в избранное.</p><label for="smartImportUrl">Ссылка на альбом или плейлист</label><input id="smartImportUrl" type="url" placeholder="https://open.spotify.com/playlist/..." autocomplete="off"><button id="smartImportBtn">Проверить ссылку</button><p id="smartImportStatus" class="import-status" role="status"></p></article><article class="import-card"><div class="import-icon">♫</div><h3>Тексты песен</h3><p>Текст откроется прямо в полноэкранном плеере, без перехода на сайты.</p><button id="lyricsBtn">Показать текст</button></article></div></section>`;
+  view.innerHTML=`<section class="hero compact"><div><div class="eyebrow">ТВОЯ МУЗЫКА РЯДОМ</div><h1>Наполни свой<br><span>мир звуком.</span></h1><p>Локальные файлы, прямые аудиоссылки и импорт метаданных.</p></div></section><section class="section"><div class="import-grid"><article class="import-card"><div class="import-icon">↥</div><h3>Файлы с устройства</h3><p>Выбирай сразу несколько файлов. Аудио не отправляется на сервер. После закрытия страницы файлы нужно выбрать снова. Поддержка форматов зависит от браузера.</p><button id="fileBtn">Выбрать музыку</button><input id="fileInput" type="file" accept="audio/*,.flac,.mp3,.wav,.ogg,.m4a" multiple hidden></article><article class="import-card"><div class="import-icon">↗</div><h3>Прямые аудиоссылки</h3><p>Одна HTTPS-ссылка на файл в каждой строке. Страницы Spotify/VK/Яндекс не являются аудиофайлами и здесь не воспроизводятся.</p><label for="bulkLinks">Ссылки на аудио</label><textarea id="bulkLinks" rows="4" placeholder="https://example.com/music.mp3"></textarea><button id="bulkBtn">Добавить в избранное</button></article><article class="import-card"><div class="import-icon">▤</div><h3>Импорт CSV</h3><p>Колонки title,artist,album,url. Если url пустой, импортируются только метаданные. Кавычки и запятые в названиях поддерживаются.</p><button id="csvBtn">Открыть CSV</button><input id="csvInput" type="file" accept=".csv,text/csv" hidden><button id="exportBtn">Экспорт коллекции</button></article><article class="import-card"><div class="import-icon">⇄</div><h3>Умный импорт</h3><p>Вставь официальную ссылку на альбом или плейлист. Backend получит треклист через API, сопоставит треки и добавит найденные позиции в избранное.</p><label for="smartImportUrl">Ссылка на альбом или плейлист</label><input id="smartImportUrl" type="url" placeholder="https://open.spotify.com/playlist/..." autocomplete="off"><button id="smartImportBtn">Проверить / импортировать</button><button id="smartImportCancel" hidden>Остановить ожидание</button><progress id="smartImportProgress" hidden max="1" aria-label="Прогресс импорта"></progress><p id="smartImportStatus" class="import-status" role="status"></p><div id="smartImportSummary"></div></article><article class="import-card"><div class="import-icon">♫</div><h3>Тексты песен</h3><p>Текст откроется прямо в полноэкранном плеере, без перехода на сайты.</p><button id="lyricsBtn">Показать текст</button></article></div></section>`;
   $('#fileBtn').onclick=()=>$('#fileInput').click();
   $('#fileInput').onchange=e=>add([...e.target.files].map(f=>({...entry(f.name.replace(/\.[^.]+$/,''),'Локальный файл','С устройства',URL.createObjectURL(f)),local:true,cover:'gradient-7'})));
-  $('#smartImportBtn').onclick=()=>{
-    const status=$('#smartImportStatus');
+  $('#smartImportBtn').onclick=async()=>{
+    if(activeImportController) return;
+    const status=$('#smartImportStatus'), button=$('#smartImportBtn');
+    const cancel=$('#smartImportCancel'), progress=$('#smartImportProgress'), summary=$('#smartImportSummary');
+    const url=$('#smartImportUrl').value;
+    let controller;
     try {
-      const parsed=VibeSmartImport.parseImportUrl($('#smartImportUrl').value);
-      status.textContent=`Ссылка распознана: ${parsed.source === 'spotify' ? 'Spotify' : parsed.source === 'yandex' ? 'Яндекс Музыка' : 'VK'} · ${parsed.resourceType}. Для синхронизации нужен подключённый backend.`;
-      status.className='import-status success';
+      const parsed=VibeSmartImport.parseImportUrl(url);
+      summary.textContent='';
+      if(!window.VIBE_CONFIG?.importBackendUrl) {
+        status.textContent=`Ссылка распознана: ${parsed.source === 'spotify' ? 'Spotify' : parsed.source === 'yandex' ? 'Яндекс Музыка' : 'VK'}. Сервис импорта ещё не подключён.`;
+        status.className='import-status';
+        return;
+      }
+      const client=VibeSmartImportClient.createImportClient({baseUrl:window.VIBE_CONFIG.importBackendUrl,
+        token:window.VIBE_CONFIG.getAccessToken || (async()=>null)});
+      controller=new AbortController(); activeImportController=controller;
+      button.disabled=true; cancel.hidden=false; progress.hidden=false; progress.removeAttribute('value');
+      cancel.onclick=()=>controller.abort();
+      status.className='import-status'; status.textContent='Получаем треклист…';
+      const job=await client.run(url,{signal:controller.signal,onProgress:job=>{
+        if(!status.isConnected) return;
+        progress.max=Math.max(1,job.total); progress.value=job.processed;
+        status.textContent=`Синхронизируем медиатеку: ${job.processed} из ${job.total}`;
+      }});
+      if(!status.isConnected) return;
+      if(job.status==='failed') throw new Error('Сервис не смог завершить импорт');
+      if(job.status==='cancelled') {status.textContent='Импорт отменён на сервере';return;}
+      const playable=job.items.filter(item=>['added','already_exists'].includes(item.status) &&
+        typeof item.canonical_track_id==='string' && typeof item.title==='string' &&
+        typeof item.artist==='string' && safeAudio(item.audio_url));
+      const existing=new Set(allTracks().map(track=>track.id));
+      const fresh=playable.filter(item=>{
+        if(existing.has(item.canonical_track_id)) return false;
+        existing.add(item.canonical_track_id); return true;
+      }).map(item=>({...entry(item.title,item.artist,'Умный импорт',safeAudio(item.audio_url)),id:item.canonical_track_id}));
+      if(fresh.length) add(fresh,true);
+      liked=[...new Set([...liked,...playable.map(item=>item.canonical_track_id)])];
+      save('vibe-liked',liked); updateCounts();
+      status.textContent=`Синхронизировано доступных аудиозаписей: ${playable.length}. Новых в коллекции: ${fresh.length}.`;
+      const missing=job.items.filter(item=>!playable.includes(item));
+      summary.innerHTML=missing.length ? `<details><summary>Требуют проверки: ${missing.length}</summary>${missing.map(item=>`<p>${escapeHTML(item.artist)} — ${escapeHTML(item.title)} <button data-alternative="${escapeHTML(`${item.artist||''} ${item.title||''}`)}">Найти альтернативу</button></p>`).join('')}</details>` : '';
+      summary.querySelectorAll('[data-alternative]').forEach(btn=>btn.onclick=()=>{input.value=btn.dataset.alternative;location.hash='search';input.dispatchEvent(new Event('input'));});
     } catch(error) {
-      status.textContent=error.message;
+      status.textContent=error.name==='AbortError' ? 'Ожидание остановлено. Задание может продолжаться на сервере.' : error.message;
       status.className='import-status error';
+    } finally {
+      if(activeImportController===controller) activeImportController=null;
+      button.disabled=false; cancel.hidden=true; progress.hidden=true;
     }
   };
   $('#bulkBtn').onclick=()=>{

@@ -27,6 +27,15 @@ test('отклоняет небезопасные и неподдерживае�
   assert.throws(() => smartImport.parseImportUrl('https://open.spotify.com/track/x'), /альбом или плейлист/);
 });
 
+test('сохраняет версии записи при дедупликации', () => {
+  const result = smartImport.deduplicateTracks([
+    { title: 'Song', artist: 'Artist' },
+    { title: 'Song (Remix)', artist: 'Artist' },
+    { title: 'Song [Live]', artist: 'Artist' }
+  ]);
+  assert.equal(result.length, 3);
+});
+
 test('нормализует и дедуплицирует треки по ISRC и metadata', () => {
   const result = smartImport.deduplicateTracks([
     { title: ' Song [Official Video] ', artist: 'Artist', isrc: 'us-a1' },
