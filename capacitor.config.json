@@ -1,0 +1,8 @@
+{
+  "appId": "com.vibe.music",
+  "appName": "Vibe Music",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "server": { "androidScheme": "https" },
+  "android": { "allowMixedContent": false }
+}
