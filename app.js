@@ -231,7 +231,15 @@ view.addEventListener('click',async e=>{
   } catch(error) { toast(error.message || 'Не удалось открыть трек'); }
 });
 let searchTimer;
-input.oninput=()=>{if(location.hash!=='#search')location.hash='search';renderSearch(input.value);clearTimeout(searchTimer);if(input.value.trim().length>=2){searchTimer=setTimeout(()=>searchArchive(input.value.trim()),450);}else{remoteSearchRequest++;remoteResults=[];}};
+input.oninput=()=>{
+  clearTimeout(searchTimer);
+  remoteSearchRequest++;
+  archiveController?.abort();
+  remoteResults=[];
+  if(location.hash!=='#search')location.hash='search';
+  renderSearch(input.value);
+  if(input.value.trim().length>=2)searchTimer=setTimeout(()=>searchArchive(input.value.trim()),320);
+};
 window.addEventListener('hashchange',route);
 $('#playBtn').onclick=async()=>{
   if(!current) return move(1);
@@ -247,9 +255,11 @@ audio.onerror=()=>toast('Источник недоступен или форма
 audio.ontimeupdate=()=>{const percent=audio.duration?audio.currentTime/audio.duration*100:0;$('#progress').value=percent;$('#currentTime').textContent=fmt(audio.currentTime);$('#duration').textContent=fmt(audio.duration);$('#fullProgress').value=percent;$('#fullCurrent').textContent=fmt(audio.currentTime);$('#fullDuration').textContent=fmt(audio.duration);};
 $('#progress').oninput=e=>{if(Number.isFinite(audio.duration))audio.currentTime=Number(e.target.value)/100*audio.duration;};
 $('#fullProgress').oninput=e=>{if(Number.isFinite(audio.duration))audio.currentTime=Number(e.target.value)/100*audio.duration;};
-$('#openPlayer').onclick=()=>{fullPlayer.hidden=false;syncPlayer();$('#fullProgress').value=audio.duration?audio.currentTime/audio.duration*100:0;};
-document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!fullPlayer.hidden)fullPlayer.hidden=true;});
-$('#closePlayer').onclick=()=>{fullPlayer.hidden=true;};
+let playerOpener;
+const closeFullPlayer=()=>{fullPlayer.hidden=true;document.body.classList.remove('player-open');playerOpener?.focus();};
+$('#openPlayer').onclick=()=>{playerOpener=document.activeElement;fullPlayer.hidden=false;document.body.classList.add('player-open');syncPlayer();$('#fullProgress').value=audio.duration?audio.currentTime/audio.duration*100:0;$('#closePlayer').focus();};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!fullPlayer.hidden)closeFullPlayer();});
+$('#closePlayer').onclick=closeFullPlayer;
 $('#fullPlay').onclick=()=>$('#playBtn').click();
 $('#fullNext').onclick=()=>move(1); $('#fullPrev').onclick=()=>move(-1);
 $('#fullShuffle').onclick=()=>$('#shuffleBtn').click(); $('#fullRepeat').onclick=()=>$('#repeatBtn').click();
