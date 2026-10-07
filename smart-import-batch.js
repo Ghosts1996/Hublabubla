@@ -41,5 +41,7 @@
     };
   }
 
-  root.VibeSmartImportBatch = Object.freeze({ createBatchMatcher });
+  const api = Object.freeze({ createBatchMatcher });
+  root.VibeSmartImportBatch = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window === 'undefined' ? globalThis : window);

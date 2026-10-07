@@ -1,13 +1,8 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const vm = require('node:vm');
+const { createBatchMatcher } = require('../smart-import-batch.js');
 
-const context = vm.createContext({ URL, DOMException, setTimeout, clearTimeout });
-vm.runInContext(fs.readFileSync('smart-import.js', 'utf8'), context);
-vm.runInContext(fs.readFileSync('smart-import-batch.js', 'utf8'), context);
-
-const matcher = context.VibeSmartImportBatch.createBatchMatcher({
+const matcher = createBatchMatcher({
   concurrency: 2,
   search: async track => {
     await new Promise(resolve => setTimeout(resolve, track.title === 'slow' ? 10 : 1));

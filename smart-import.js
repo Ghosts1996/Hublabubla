@@ -66,5 +66,7 @@
     });
   }
 
-  root.VibeSmartImport = Object.freeze({ parseImportUrl, normalizeTrack, deduplicateTracks });
+  const api = Object.freeze({ parseImportUrl, normalizeTrack, deduplicateTracks });
+  root.VibeSmartImport = api;
+  if (typeof module !== 'undefined' && module.exports) module.exports = api;
 })(typeof window === 'undefined' ? globalThis : window);

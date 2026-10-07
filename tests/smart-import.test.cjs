@@ -1,16 +1,10 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const fs = require('node:fs');
-const vm = require('node:vm');
-
-const source = fs.readFileSync('smart-import.js', 'utf8');
-const context = vm.createContext({ URL });
-vm.runInContext(source, context);
-const smartImport = context.VibeSmartImport;
+const smartImport = require('../smart-import.js');
 
 test('распознаёт официальный Spotify playlist URL', () => {
   assert.deepEqual(
-    JSON.parse(JSON.stringify(smartImport.parseImportUrl('https://open.spotify.com/playlist/abc123?si=test'))),
+    smartImport.parseImportUrl('https://open.spotify.com/playlist/abc123?si=test'),
     {
       originalUrl: 'https://open.spotify.com/playlist/abc123?si=test',
       source: 'spotify',
