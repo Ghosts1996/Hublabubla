@@ -19,9 +19,19 @@ const tracks = [
 ];
 let imported = load('vibe-imported', []).filter(t => t && typeof t.id === 'string').map(t => ({...t, cover:'gradient-6', src:safeAudio(t.src)}));
 let liked = load('vibe-liked', []);
+let history = load('vibe-history', []);
 let queue = [...tracks, ...imported];
 let current = null, shuffle = false, repeat = false, playRequest = 0;
-let remoteResults = [], remoteSearchRequest = 0;
+let remoteResults = [], remoteSearchRequest = 0, archiveController = null;
+const searchCache = new Map();
+  const fullPlayer = $('#fullPlayer');
+  const syncPlayer = () => {
+    if (!current) return;
+    $('#fullTitle').textContent = current.title; $('#fullArtist').textContent = current.artist;
+    $('#fullCover').className = `full-cover ${current.cover}`;
+    $('#fullLike').textContent = liked.includes(current.id) ? '♥ В любимом' : '♡ Любимое';
+    $('#fullPlay').textContent = audio.paused ? '▶' : 'Ⅱ';
+  };
   const allTracks = () => queue;
   function remoteTrack(item) {
     return {id:`archive-${item.identifier}`, title:item.title || item.identifier || 'Без названия', artist:Array.isArray(item.creator)?item.creator.join(', '):(item.creator || 'Internet Archive'), album:'Открытая библиотека · Internet Archive', cover:'gradient-5', time:'—', sourceId:item.identifier, openSource:true};
@@ -36,15 +46,22 @@ let remoteResults = [], remoteSearchRequest = 0;
   }
   async function searchArchive(query) {
     const request = ++remoteSearchRequest;
+      if (archiveController) archiveController.abort();
+      archiveController = typeof AbortController === 'function' ? new AbortController() : null;
     if (!query.trim()) { remoteResults=[]; return route(); }
+    const normalized = query.trim().toLowerCase();
+    if (searchCache.has(normalized)) { remoteResults = searchCache.get(normalized); renderSearch(input.value); return; }
     try {
       const params = new URLSearchParams({q:`(${query.trim()}) AND mediatype:audio`, 'fl[]':'identifier,title,creator', rows:'20', page:'1', output:'json'});
-      const response = await fetch(`https://archive.org/advancedsearch.php?${params}`);
+      const response = await fetch(`https://archive.org/advancedsearch.php?${params}`, archiveController ? {signal: archiveController.signal} : {});
       if (!response.ok) throw new Error('Сервис поиска недоступен');
       const data = await response.json();
       if (request !== remoteSearchRequest) return;
-      remoteResults=(data.response?.docs || []).map(remoteTrack); renderSearch(input.value);
-    } catch(error) { if(request===remoteSearchRequest) { remoteResults=[]; renderSearch(input.value,error.message); } }
+      remoteResults=(data.response?.docs || []).map(remoteTrack);
+      searchCache.set(normalized, remoteResults);
+      if (searchCache.size > 20) searchCache.delete(searchCache.keys().next().value);
+      renderSearch(input.value);
+    } catch(error) { if (error.name === 'AbortError') return; if(request===remoteSearchRequest) { remoteResults=[]; renderSearch(input.value,error.message); } }
   }
   async function materializeRemote(track) {
     if (!track.src) track.src=await findArchiveAudio(track.sourceId);
@@ -97,11 +114,18 @@ function renderSearch(query='', error='') {
   const remoteRows = remoteResults.length ? `<div class="track-list">${remoteResults.map((t,i)=>`<div class="track"><span class="track-num">${String(i+1).padStart(2,'0')}</span>${cover(t,true)}<button class="track-info" data-archive-play="${escapeHTML(t.id)}"><div class="track-name">${escapeHTML(t.title)}</div><div class="track-author">${escapeHTML(t.artist)} · ${escapeHTML(t.album)}</div></button><span class="track-time">♫</span><button class="track-like ${liked.includes(t.id)?'liked':''}" data-archive-like="${escapeHTML(t.id)}" aria-label="Добавить в избранное" aria-pressed="${liked.includes(t.id)}">${liked.includes(t.id)?'♥':'♡'}</button><button class="track-download" data-archive-download="${escapeHTML(t.id)}" aria-label="Скачать трек">⇩</button></div>`).join('')}</div>` : '';
   view.innerHTML = `<section class="hero compact"><div><div class="eyebrow">ПОИСК · КОЛЛЕКЦИЯ И ОТКРЫТЫЙ АРХИВ</div><h1>${query?escapeHTML(query):'Найди свой звук.'}</h1><p>В коллекции: ${local.length} · в открытом архиве: ${remoteResults.length}</p>${error?`<p role="status">${escapeHTML(error)}</p>`:''}</div></section><section class="section">${local.length?rows(local):''}${remoteRows}${!local.length&&!remoteResults.length?`<div class="empty"><strong>${query?'Ищем в открытом аудиоархиве…':'Введи название трека или исполнителя'}</strong>Поиск доступен по Internet Archive; каталог не включает все коммерческие релизы.</div>`:''}</section>`;
 }
+function renderWave() {
+  const recent = history.map(id => allTracks().find(t => t.id === id)).filter(Boolean);
+  const likedTracks = allTracks().filter(t => liked.includes(t.id));
+  const picks = [...new Map([...recent, ...likedTracks, ...tracks].map(t => [t.id, t])).values()].slice(0, 12);
+  view.innerHTML = `<section class="hero compact"><div><div class="eyebrow">ПЕРСОНАЛЬНАЯ ЛЕНТА</div><h1>Моя<br><span>волна.</span></h1><p>Музыка собрана из твоих прослушиваний и любимых треков — без случайного шума.</p></div></section><section class="section"><div class="section-head"><h2>Для тебя сегодня</h2><span class="section-tag">VIBE MIX</span></div>${rows(picks)}</section>`;
+}
 function route() {
   const page = location.hash.slice(1)||'discover';
   document.querySelectorAll('.nav-item').forEach(el=>el.classList.toggle('active',el.dataset.view===page));
   $('.sidebar').classList.remove('open');
   if (page==='imports') renderImports();
+  else if(page==='wave') renderWave();
   else if(page==='search') renderSearch(input.value);
   else if(['library','queue','liked'].includes(page)) {
     const list=page==='liked'?allTracks().filter(t=>liked.includes(t.id)):queue;
@@ -125,7 +149,7 @@ async function play(id) {
   if(!track.src && track.demo!==undefined) track.src=demoAudio(track.demo);
   if(!track.src) { toast('Это метаданные, не аудиофайл. Добавь локальный файл или прямую HTTPS-ссылку.'); return; }
   const request=++playRequest;
-  current=track; audio.src=track.src;
+  current=track; history=[track.id,...history.filter(id=>id!==track.id)].slice(0,30); save('vibe-history',history); audio.src=track.src;
   $('#playerTitle').textContent=track.title; $('#playerArtist').textContent=track.artist;
   $('#playerCover').className=`mini-cover ${track.cover}`; updateCounts();
   try { await audio.play(); } catch { if(request===playRequest) toast('Не удалось воспроизвести. Проверь формат файла или доступность ссылки.'); }
@@ -217,13 +241,22 @@ $('#nextBtn').onclick=()=>move(1); $('#prevBtn').onclick=()=>move(-1);
 $('#shuffleBtn').onclick=()=>{shuffle=!shuffle;$('#shuffleBtn').setAttribute('aria-pressed',shuffle);toast(shuffle?'Перемешивание включено':'Перемешивание выключено');};
 $('#repeatBtn').onclick=()=>{repeat=!repeat;audio.loop=repeat;$('#repeatBtn').setAttribute('aria-pressed',repeat);};
 audio.volume=Number($('#volume').value);$('#volume').oninput=e=>audio.volume=Number(e.target.value);
-audio.onplay=()=>{$('#playBtn').textContent='Ⅱ';$('#playBtn').setAttribute('aria-label','Пауза');document.body.classList.add('playing');};
-audio.onpause=()=>{$('#playBtn').textContent='▶';$('#playBtn').setAttribute('aria-label','Воспроизвести');document.body.classList.remove('playing');};
+audio.onplay=()=>{$('#playBtn').textContent='Ⅱ';$('#playBtn').setAttribute('aria-label','Пауза');document.body.classList.add('playing');syncPlayer();};
+audio.onpause=()=>{$('#playBtn').textContent='▶';$('#playBtn').setAttribute('aria-label','Воспроизвести');document.body.classList.remove('playing');syncPlayer();};
 audio.onerror=()=>toast('Источник недоступен или формат не поддерживается браузером');
-audio.ontimeupdate=()=>{$('#progress').value=audio.duration?audio.currentTime/audio.duration*100:0;$('#currentTime').textContent=fmt(audio.currentTime);$('#duration').textContent=fmt(audio.duration);};
+audio.ontimeupdate=()=>{const percent=audio.duration?audio.currentTime/audio.duration*100:0;$('#progress').value=percent;$('#currentTime').textContent=fmt(audio.currentTime);$('#duration').textContent=fmt(audio.duration);$('#fullProgress').value=percent;$('#fullCurrent').textContent=fmt(audio.currentTime);$('#fullDuration').textContent=fmt(audio.duration);};
 $('#progress').oninput=e=>{if(Number.isFinite(audio.duration))audio.currentTime=Number(e.target.value)/100*audio.duration;};
+$('#fullProgress').oninput=e=>{if(Number.isFinite(audio.duration))audio.currentTime=Number(e.target.value)/100*audio.duration;};
+$('#openPlayer').onclick=()=>{fullPlayer.hidden=false;syncPlayer();$('#fullProgress').value=audio.duration?audio.currentTime/audio.duration*100:0;};
+document.addEventListener('keydown',e=>{if(e.key==='Escape'&&!fullPlayer.hidden)fullPlayer.hidden=true;});
+$('#closePlayer').onclick=()=>{fullPlayer.hidden=true;};
+$('#fullPlay').onclick=()=>$('#playBtn').click();
+$('#fullNext').onclick=()=>move(1); $('#fullPrev').onclick=()=>move(-1);
+$('#fullShuffle').onclick=()=>$('#shuffleBtn').click(); $('#fullRepeat').onclick=()=>$('#repeatBtn').click();
+$('#fullLike').onclick=()=>{if(current){like(current.id);syncPlayer();}};
+$('#fullQueue').onclick=()=>{fullPlayer.hidden=true;location.hash='queue';};
 audio.onended=()=>{if(!repeat)move(1);};
-$('#playerLike').onclick=()=>{if(current)like(current.id);};
+$('#playerLike').onclick=e=>{e.stopPropagation();if(current)like(current.id);};
 $('#queueBtn').onclick=()=>location.hash='queue';
 $('.mobile-menu').onclick=()=>$('.sidebar').classList.toggle('open');
 document.addEventListener('keydown',e=>{if((e.metaKey||e.ctrlKey)&&e.key==='k'){e.preventDefault();input.focus();}});
