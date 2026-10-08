@@ -201,7 +201,12 @@ async function play(id) {
   if(current?.id!==track.id) resetLyrics();
   current=track; history=[track.id,...history.filter(id=>id!==track.id)].slice(0,30); save('vibe-history',history); audio.src=track.src;
   $('#playerTitle').textContent=track.title; $('#playerArtist').textContent=track.artist;
-  $('#playerCover').className=`mini-cover ${track.cover}`; updateCounts();
+  $('#playerCover').className=`mini-cover ${track.cover}`;
+    $('#fullCover').className=`full-cover ${track.cover}`;
+    $('#fullTitle').textContent=track.title; $('#fullArtist').textContent=track.artist;
+    const palette={'gradient-1':['#33245c','#0b0c12'],'gradient-2':['#153d5b','#0b0c12'],'gradient-3':['#5a263f','#0b0c12'],'gradient-4':['#164c43','#0b0c12'],'gradient-5':['#614a20','#0b0c12'],'gradient-6':['#46305f','#0b0c12'],'gradient-7':['#244d57','#0b0c12']}[track.cover]||['#282244','#0b0c12'];
+    document.documentElement.style.setProperty('--player-accent',palette[0]);
+    document.documentElement.style.setProperty('--player-bg',palette[1]); updateCounts();
   try { await audio.play(); } catch { if(request===playRequest) toast('Не удалось воспроизвести. Проверь формат файла или доступность ссылки.'); }
 }
 function move(direction) {
